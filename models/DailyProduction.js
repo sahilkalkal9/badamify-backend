@@ -67,18 +67,23 @@ const dailyProductionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-dailyProductionSchema.pre("save", function (next) {
-  this.itemsUsed = this.itemsUsed.map((item) => ({
-    ...item,
-    cost: item.quantityUsed * item.pricePerUnit,
-  }));
+dailyProductionSchema.pre("save", async function () {
+  this.itemsUsed = this.itemsUsed.map((item) => {
+    const quantityUsed = Number(item.quantityUsed || 0);
+    const pricePerUnit = Number(item.pricePerUnit || 0);
+
+    return {
+      ...item.toObject?.() || item,
+      quantityUsed,
+      pricePerUnit,
+      cost: quantityUsed * pricePerUnit,
+    };
+  });
 
   this.totalMakingCost = this.itemsUsed.reduce(
-    (sum, item) => sum + item.cost,
+    (sum, item) => sum + Number(item.cost || 0),
     0
   );
-
-  next();
 });
 
 const DailyProduction = mongoose.model(

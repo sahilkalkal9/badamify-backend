@@ -43,9 +43,9 @@ const setupStuffSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-setupStuffSchema.pre("save", function (next) {
-  this.totalPrice = this.quantity * this.pricePerItem;
-  next();
+setupStuffSchema.pre("save", function () {
+  this.totalPrice =
+    Number(this.quantity || 1) * Number(this.pricePerItem || 0);
 });
 
 const SetupStuff = mongoose.model("SetupStuff", setupStuffSchema);

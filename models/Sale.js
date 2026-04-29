@@ -57,24 +57,25 @@ const saleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-saleSchema.pre("save", function (next) {
-  this.totalAmount = this.glasses * this.pricePerGlass;
+saleSchema.pre("save", async function () {
+  const glasses = Number(this.glasses || 0);
+  const pricePerGlass = Number(this.pricePerGlass || 0);
+  const paidAmount = Number(this.paidAmount || 0);
 
-  if (this.paidAmount > this.totalAmount) {
-    this.extraAmount = this.paidAmount - this.totalAmount;
-  } else {
-    this.extraAmount = 0;
-  }
+  this.totalAmount = glasses * pricePerGlass;
 
-  if (this.paidAmount <= 0) {
+  // extra
+  this.extraAmount =
+    paidAmount > this.totalAmount ? paidAmount - this.totalAmount : 0;
+
+  // status
+  if (paidAmount <= 0) {
     this.paymentStatus = "unpaid";
-  } else if (this.paidAmount < this.totalAmount) {
+  } else if (paidAmount < this.totalAmount) {
     this.paymentStatus = "partial";
   } else {
     this.paymentStatus = "paid";
   }
-
-  next();
 });
 
 const Sale = mongoose.model("Sale", saleSchema);

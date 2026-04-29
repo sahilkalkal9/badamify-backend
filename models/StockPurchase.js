@@ -60,14 +60,24 @@ const stockPurchaseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-stockPurchaseSchema.pre("save", function (next) {
-  this.totalPrice = this.quantity * this.pricePerUnit;
+stockPurchaseSchema.pre("save", async function () {
+  const quantity = Number(this.quantity || 0);
+  const pricePerUnit = Number(this.pricePerUnit || 0);
 
+  this.totalPrice = quantity * pricePerUnit;
+
+  // payment handling
   if (this.paymentStatus === "paid") {
     this.paidAmount = this.totalPrice;
+  } else if (this.paymentStatus === "unpaid") {
+    this.paidAmount = 0;
+  } else {
+    // partial case — ensure not exceeding total
+    this.paidAmount = Math.min(
+      Number(this.paidAmount || 0),
+      this.totalPrice
+    );
   }
-
-  next();
 });
 
 const StockPurchase = mongoose.model("StockPurchase", stockPurchaseSchema);
