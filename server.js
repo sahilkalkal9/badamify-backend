@@ -23,6 +23,17 @@ app.get("/", (req, res) => {
   res.send("Badamify Backend Running");
 });
 
+// Health / keep alive API
+app.get("/api/health", (req, res) => {
+  console.log("✅ Health API hit:", new Date().toLocaleString("en-IN"));
+
+  res.status(200).json({
+    success: true,
+    message: "Badamify Backend Active",
+    time: new Date().toISOString(),
+  });
+});
+
 app.use("/api/locations", locationRoutes);
 app.use("/api/recipe-items", recipeItemRoutes);
 app.use("/api/setup-stuff", setupStuffRoutes);
@@ -35,4 +46,21 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+
+  const selfUrl = process.env.SELF_URL;
+
+  if (selfUrl) {
+    setInterval(async () => {
+      try {
+        const response = await fetch(`${selfUrl}/api/health`);
+        const data = await response.json();
+
+        console.log("🔁 Self ping success:", data.message, new Date().toLocaleString("en-IN"));
+      } catch (error) {
+        console.log("❌ Self ping failed:", error.message);
+      }
+    }, 3 * 60 * 1000); // every 3 minutes
+  } else {
+    console.log("⚠️ SELF_URL not found in env. Self ping disabled.");
+  }
 });
