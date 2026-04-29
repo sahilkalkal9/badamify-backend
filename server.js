@@ -59,7 +59,7 @@ app.listen(PORT, () => {
       } catch (error) {
         console.log("❌ Self ping failed:", error.message);
       }
-    }, 3 * 60 * 1000); // every 3 minutes
+    }, 1*60*1000); // every 1 minute
   } else {
     console.log("⚠️ SELF_URL not found in env. Self ping disabled.");
   }
