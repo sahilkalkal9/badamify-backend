@@ -2,11 +2,6 @@ import mongoose from "mongoose";
 
 const recipeItemSchema = new mongoose.Schema(
   {
-    location: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Location",
-      required: true,
-    },
     name: {
       type: String,
       required: true,
