@@ -14,7 +14,7 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 dotenv.config();
 connectDB();
 
-const app = express();
+const app = express(); 
 
 app.use(cors());
 app.use(express.json());

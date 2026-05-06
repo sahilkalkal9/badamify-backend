@@ -21,39 +21,60 @@ export const createStockPurchase = async (req, res) => {
       pricePerUnit: pricePerUnit ?? recipeItem.pricePerUnit,
     };
 
+    delete payload.location;
+
     const purchase = await StockPurchase.create(payload);
 
     recipeItem.currentStock += Number(quantity || 0);
     recipeItem.pricePerUnit = Number(payload.pricePerUnit || 0);
+
     await recipeItem.save();
 
-    res.status(201).json({ success: true, purchase });
+    res.status(201).json({
+      success: true,
+      purchase,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
 export const getStockPurchases = async (req, res) => {
   try {
-    const { locationId, from, to } = req.query;
+    const { from, to } = req.query;
 
     const filter = {};
-    if (locationId) filter.location = locationId;
 
     if (from || to) {
       filter.purchaseDate = {};
-      if (from) filter.purchaseDate.$gte = new Date(from);
-      if (to) filter.purchaseDate.$lte = new Date(to);
+
+      if (from) {
+        filter.purchaseDate.$gte = new Date(from);
+      }
+
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        filter.purchaseDate.$lte = toDate;
+      }
     }
 
     const purchases = await StockPurchase.find(filter)
-      .populate("location", "name")
       .populate("item", "name unit currentStock")
       .sort({ purchaseDate: -1 });
 
-    res.json({ success: true, purchases });
+    res.json({
+      success: true,
+      purchases,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
@@ -68,30 +89,72 @@ export const updateStockPurchase = async (req, res) => {
       });
     }
 
-    const oldQuantity = purchase.quantity;
+    const oldQuantity = Number(purchase.quantity || 0);
+    const oldItemId = purchase.item?.toString();
 
-    Object.assign(purchase, req.body);
+    const payload = { ...req.body };
+    delete payload.location;
 
-    purchase.totalPrice = purchase.quantity * purchase.pricePerUnit;
+    if (payload.item) {
+      const recipeItem = await RecipeItem.findById(payload.item);
 
-    if (purchase.paymentStatus === "paid") {
-      purchase.paidAmount = purchase.totalPrice;
+      if (!recipeItem) {
+        return res.status(404).json({
+          success: false,
+          message: "Recipe item not found",
+        });
+      }
+
+      payload.itemName = recipeItem.name;
+      payload.unit = recipeItem.unit;
     }
+
+    Object.assign(purchase, payload);
 
     await purchase.save();
 
-    const recipeItem = await RecipeItem.findById(purchase.item);
+    const newQuantity = Number(purchase.quantity || 0);
+    const newItemId = purchase.item?.toString();
 
-    if (recipeItem) {
-      const difference = Number(purchase.quantity || 0) - Number(oldQuantity || 0);
-      recipeItem.currentStock += difference;
-      recipeItem.pricePerUnit = purchase.pricePerUnit;
-      await recipeItem.save();
+    if (oldItemId === newItemId) {
+      const recipeItem = await RecipeItem.findById(purchase.item);
+
+      if (recipeItem) {
+        const difference = newQuantity - oldQuantity;
+
+        recipeItem.currentStock += difference;
+        if (recipeItem.currentStock < 0) recipeItem.currentStock = 0;
+
+        recipeItem.pricePerUnit = Number(purchase.pricePerUnit || 0);
+
+        await recipeItem.save();
+      }
+    } else {
+      const oldRecipeItem = await RecipeItem.findById(oldItemId);
+      const newRecipeItem = await RecipeItem.findById(newItemId);
+
+      if (oldRecipeItem) {
+        oldRecipeItem.currentStock -= oldQuantity;
+        if (oldRecipeItem.currentStock < 0) oldRecipeItem.currentStock = 0;
+        await oldRecipeItem.save();
+      }
+
+      if (newRecipeItem) {
+        newRecipeItem.currentStock += newQuantity;
+        newRecipeItem.pricePerUnit = Number(purchase.pricePerUnit || 0);
+        await newRecipeItem.save();
+      }
     }
 
-    res.json({ success: true, purchase });
+    res.json({
+      success: true,
+      purchase,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
@@ -110,14 +173,24 @@ export const deleteStockPurchase = async (req, res) => {
 
     if (recipeItem) {
       recipeItem.currentStock -= Number(purchase.quantity || 0);
-      if (recipeItem.currentStock < 0) recipeItem.currentStock = 0;
+
+      if (recipeItem.currentStock < 0) {
+        recipeItem.currentStock = 0;
+      }
+
       await recipeItem.save();
     }
 
     await purchase.deleteOne();
 
-    res.json({ success: true, message: "Stock purchase deleted" });
+    res.json({
+      success: true,
+      message: "Stock purchase deleted",
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };

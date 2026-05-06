@@ -2,11 +2,6 @@ import mongoose from "mongoose";
 
 const stockPurchaseSchema = new mongoose.Schema(
   {
-    location: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Location",
-      required: true,
-    },
     item: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "RecipeItem",
@@ -66,17 +61,12 @@ stockPurchaseSchema.pre("save", async function () {
 
   this.totalPrice = quantity * pricePerUnit;
 
-  // payment handling
   if (this.paymentStatus === "paid") {
     this.paidAmount = this.totalPrice;
   } else if (this.paymentStatus === "unpaid") {
     this.paidAmount = 0;
   } else {
-    // partial case — ensure not exceeding total
-    this.paidAmount = Math.min(
-      Number(this.paidAmount || 0),
-      this.totalPrice
-    );
+    this.paidAmount = Math.min(Number(this.paidAmount || 0), this.totalPrice);
   }
 });
 
