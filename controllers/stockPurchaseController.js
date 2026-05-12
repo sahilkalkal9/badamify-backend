@@ -1,9 +1,10 @@
 import StockPurchase from "../models/StockPurchase.js";
 import RecipeItem from "../models/RecipeItem.js";
+import { reconcileRecipeItemStock } from "../utils/inventory.js";
 
 export const createStockPurchase = async (req, res) => {
   try {
-    const { item, quantity, pricePerUnit } = req.body;
+    const { item, pricePerUnit } = req.body;
 
     const recipeItem = await RecipeItem.findById(item);
 
@@ -25,10 +26,10 @@ export const createStockPurchase = async (req, res) => {
 
     const purchase = await StockPurchase.create(payload);
 
-    recipeItem.currentStock += Number(quantity || 0);
     recipeItem.pricePerUnit = Number(payload.pricePerUnit || 0);
 
     await recipeItem.save();
+    await reconcileRecipeItemStock([recipeItem._id]);
 
     res.status(201).json({
       success: true,
@@ -89,7 +90,6 @@ export const updateStockPurchase = async (req, res) => {
       });
     }
 
-    const oldQuantity = Number(purchase.quantity || 0);
     const oldItemId = purchase.item?.toString();
 
     const payload = { ...req.body };
@@ -113,38 +113,16 @@ export const updateStockPurchase = async (req, res) => {
 
     await purchase.save();
 
-    const newQuantity = Number(purchase.quantity || 0);
     const newItemId = purchase.item?.toString();
 
-    if (oldItemId === newItemId) {
-      const recipeItem = await RecipeItem.findById(purchase.item);
+    const recipeItem = await RecipeItem.findById(newItemId);
 
-      if (recipeItem) {
-        const difference = newQuantity - oldQuantity;
-
-        recipeItem.currentStock += difference;
-        if (recipeItem.currentStock < 0) recipeItem.currentStock = 0;
-
-        recipeItem.pricePerUnit = Number(purchase.pricePerUnit || 0);
-
-        await recipeItem.save();
-      }
-    } else {
-      const oldRecipeItem = await RecipeItem.findById(oldItemId);
-      const newRecipeItem = await RecipeItem.findById(newItemId);
-
-      if (oldRecipeItem) {
-        oldRecipeItem.currentStock -= oldQuantity;
-        if (oldRecipeItem.currentStock < 0) oldRecipeItem.currentStock = 0;
-        await oldRecipeItem.save();
-      }
-
-      if (newRecipeItem) {
-        newRecipeItem.currentStock += newQuantity;
-        newRecipeItem.pricePerUnit = Number(purchase.pricePerUnit || 0);
-        await newRecipeItem.save();
-      }
+    if (recipeItem) {
+      recipeItem.pricePerUnit = Number(purchase.pricePerUnit || 0);
+      await recipeItem.save();
     }
+
+    await reconcileRecipeItemStock([oldItemId, newItemId]);
 
     res.json({
       success: true,
@@ -169,19 +147,10 @@ export const deleteStockPurchase = async (req, res) => {
       });
     }
 
-    const recipeItem = await RecipeItem.findById(purchase.item);
-
-    if (recipeItem) {
-      recipeItem.currentStock -= Number(purchase.quantity || 0);
-
-      if (recipeItem.currentStock < 0) {
-        recipeItem.currentStock = 0;
-      }
-
-      await recipeItem.save();
-    }
+    const itemId = purchase.item;
 
     await purchase.deleteOne();
+    await reconcileRecipeItemStock([itemId]);
 
     res.json({
       success: true,

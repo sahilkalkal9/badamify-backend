@@ -2,7 +2,7 @@ import SetupStuff from "../models/SetupStuff.js";
 import StockPurchase from "../models/StockPurchase.js";
 import DailyProduction from "../models/DailyProduction.js";
 import Sale from "../models/Sale.js";
-import RecipeItem from "../models/RecipeItem.js";
+import { getInventoryLedger } from "../utils/inventory.js";
 
 const sum = (arr, key) => {
   return arr.reduce((total, item) => total + Number(item[key] || 0), 0);
@@ -33,13 +33,13 @@ export const getDashboard = async (req, res) => {
       saleFilter.date = dateFilter;
     }
 
-    const [setupStuff, stockPurchases, productions, sales, recipeItems] =
+    const [setupStuff, stockPurchases, productions, sales, inventoryLedger] =
       await Promise.all([
         SetupStuff.find(setupFilter),
         StockPurchase.find(stockFilter),
         DailyProduction.find(productionFilter),
         Sale.find(saleFilter),
-        RecipeItem.find({}),
+        getInventoryLedger(),
       ]);
 
     const totalSetupInvestment = sum(setupStuff, "totalPrice");
@@ -58,9 +58,7 @@ export const getDashboard = async (req, res) => {
     const totalExtraReceived = sum(sales, "extraAmount");
     const totalGlassesSold = sum(sales, "glasses");
 
-    const currentStockValue = recipeItems.reduce((total, item) => {
-      return total + Number(item.currentStock || 0) * Number(item.pricePerUnit || 0);
-    }, 0);
+    const currentStockValue = inventoryLedger.currentStockValue;
 
     const totalInvestedTillNow = totalSetupInvestment + totalStockPaid;
 

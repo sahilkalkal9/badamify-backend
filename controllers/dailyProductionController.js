@@ -1,17 +1,10 @@
 import DailyProduction from "../models/DailyProduction.js";
 import RecipeItem from "../models/RecipeItem.js";
-
-const getItemId = (item) => item?.toString();
-
-const getQuantityMap = (items = []) => {
-  return items.reduce((map, used) => {
-    const itemId = getItemId(used.item);
-    if (!itemId) return map;
-
-    map.set(itemId, (map.get(itemId) || 0) + Number(used.quantityUsed || 0));
-    return map;
-  }, new Map());
-};
+import {
+  getItemId,
+  getQuantityMap,
+  reconcileRecipeItemStock,
+} from "../utils/inventory.js";
 
 const buildProductionItems = async (itemsUsed = []) => {
   const requestedItems = getQuantityMap(itemsUsed);
@@ -65,24 +58,6 @@ const ensureStockAvailable = async (newItems = [], oldItems = []) => {
   }
 };
 
-const applyStockConsumption = async (newItems = [], oldItems = []) => {
-  const newQuantities = getQuantityMap(newItems);
-  const oldQuantities = getQuantityMap(oldItems);
-  const itemIds = new Set([...newQuantities.keys(), ...oldQuantities.keys()]);
-
-  for (const itemId of itemIds) {
-    const oldQuantity = Number(oldQuantities.get(itemId) || 0);
-    const newQuantity = Number(newQuantities.get(itemId) || 0);
-    const stockIncrement = oldQuantity - newQuantity;
-
-    if (stockIncrement !== 0) {
-      await RecipeItem.findByIdAndUpdate(itemId, {
-        $inc: { currentStock: stockIncrement },
-      });
-    }
-  }
-};
-
 export const createDailyProduction = async (req, res) => {
   try {
     const { itemsUsed = [] } = req.body;
@@ -103,7 +78,7 @@ export const createDailyProduction = async (req, res) => {
       itemsUsed: finalItems,
     });
 
-    await applyStockConsumption(finalItems);
+    await reconcileRecipeItemStock(finalItems.map((used) => used.item));
 
     res.status(201).json({ success: true, production });
   } catch (error) {
@@ -178,7 +153,10 @@ export const updateDailyProduction = async (req, res) => {
     production.itemsUsed = finalItems;
 
     await production.save();
-    await applyStockConsumption(finalItems, oldItems);
+    await reconcileRecipeItemStock([
+      ...oldItems.map((used) => used.item),
+      ...finalItems.map((used) => used.item),
+    ]);
 
     res.json({ success: true, production });
   } catch (error) {
@@ -199,13 +177,10 @@ export const deleteDailyProduction = async (req, res) => {
       });
     }
 
-    for (const used of production.itemsUsed) {
-      await RecipeItem.findByIdAndUpdate(used.item, {
-        $inc: { currentStock: Number(used.quantityUsed || 0) },
-      });
-    }
+    const itemIds = production.itemsUsed.map((used) => used.item);
 
     await production.deleteOne();
+    await reconcileRecipeItemStock(itemIds);
 
     res.json({ success: true, message: "Daily production deleted" });
   } catch (error) {
