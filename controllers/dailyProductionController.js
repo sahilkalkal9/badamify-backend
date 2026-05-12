@@ -1,53 +1,115 @@
 import DailyProduction from "../models/DailyProduction.js";
 import RecipeItem from "../models/RecipeItem.js";
 
+const getItemId = (item) => item?.toString();
+
+const getQuantityMap = (items = []) => {
+  return items.reduce((map, used) => {
+    const itemId = getItemId(used.item);
+    if (!itemId) return map;
+
+    map.set(itemId, (map.get(itemId) || 0) + Number(used.quantityUsed || 0));
+    return map;
+  }, new Map());
+};
+
+const buildProductionItems = async (itemsUsed = []) => {
+  const requestedItems = getQuantityMap(itemsUsed);
+  const finalItems = [];
+
+  for (const [itemId, quantityUsed] of requestedItems.entries()) {
+    if (quantityUsed <= 0) continue;
+
+    const recipeItem = await RecipeItem.findById(itemId);
+
+    if (!recipeItem) {
+      const error = new Error(`Recipe item not found: ${itemId}`);
+      error.statusCode = 404;
+      throw error;
+    }
+
+    finalItems.push({
+      item: recipeItem._id,
+      itemName: recipeItem.name,
+      quantityUsed,
+      unit: recipeItem.unit,
+      pricePerUnit: recipeItem.pricePerUnit,
+      cost: quantityUsed * recipeItem.pricePerUnit,
+    });
+  }
+
+  return finalItems;
+};
+
+const ensureStockAvailable = async (newItems = [], oldItems = []) => {
+  const oldQuantities = getQuantityMap(oldItems);
+
+  for (const used of newItems) {
+    const itemId = getItemId(used.item);
+    const recipeItem = await RecipeItem.findById(itemId);
+
+    if (!recipeItem) {
+      const error = new Error(`Recipe item not found: ${itemId}`);
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const availableStock =
+      Number(recipeItem.currentStock || 0) + Number(oldQuantities.get(itemId) || 0);
+
+    if (availableStock < Number(used.quantityUsed || 0)) {
+      const error = new Error(`${recipeItem.name} stock is not enough`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+};
+
+const applyStockConsumption = async (newItems = [], oldItems = []) => {
+  const newQuantities = getQuantityMap(newItems);
+  const oldQuantities = getQuantityMap(oldItems);
+  const itemIds = new Set([...newQuantities.keys(), ...oldQuantities.keys()]);
+
+  for (const itemId of itemIds) {
+    const oldQuantity = Number(oldQuantities.get(itemId) || 0);
+    const newQuantity = Number(newQuantities.get(itemId) || 0);
+    const stockIncrement = oldQuantity - newQuantity;
+
+    if (stockIncrement !== 0) {
+      await RecipeItem.findByIdAndUpdate(itemId, {
+        $inc: { currentStock: stockIncrement },
+      });
+    }
+  }
+};
+
 export const createDailyProduction = async (req, res) => {
   try {
     const { itemsUsed = [] } = req.body;
 
-    const finalItems = [];
+    const finalItems = await buildProductionItems(itemsUsed);
 
-    for (const used of itemsUsed) {
-      const recipeItem = await RecipeItem.findById(used.item);
-
-      if (!recipeItem) {
-        return res.status(404).json({
-          success: false,
-          message: `Recipe item not found: ${used.item}`,
-        });
-      }
-
-      if (recipeItem.currentStock < Number(used.quantityUsed || 0)) {
-        return res.status(400).json({
-          success: false,
-          message: `${recipeItem.name} stock is not enough`,
-        });
-      }
-
-      finalItems.push({
-        item: recipeItem._id,
-        itemName: recipeItem.name,
-        quantityUsed: Number(used.quantityUsed || 0),
-        unit: recipeItem.unit,
-        pricePerUnit: recipeItem.pricePerUnit,
-        cost: Number(used.quantityUsed || 0) * recipeItem.pricePerUnit,
+    if (!finalItems.length) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one used item is required",
       });
     }
+
+    await ensureStockAvailable(finalItems);
 
     const production = await DailyProduction.create({
       ...req.body,
       itemsUsed: finalItems,
     });
 
-    for (const used of finalItems) {
-      await RecipeItem.findByIdAndUpdate(used.item, {
-        $inc: { currentStock: -Number(used.quantityUsed || 0) },
-      });
-    }
+    await applyStockConsumption(finalItems);
 
     res.status(201).json({ success: true, production });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res
+      .status(error.statusCode || 500)
+      .json({ success: false, message: error.message });
   }
 };
 
@@ -79,6 +141,50 @@ export const getDailyProductions = async (req, res) => {
     res.json({ success: true, productions });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateDailyProduction = async (req, res) => {
+  try {
+    const production = await DailyProduction.findById(req.params.id);
+
+    if (!production) {
+      return res.status(404).json({
+        success: false,
+        message: "Daily production not found",
+      });
+    }
+
+    const finalItems = await buildProductionItems(req.body.itemsUsed || []);
+
+    if (!finalItems.length) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one used item is required",
+      });
+    }
+
+    await ensureStockAvailable(finalItems, production.itemsUsed);
+
+    const oldItems = production.itemsUsed.map((used) => used.toObject());
+
+    production.location = req.body.location ?? production.location;
+    production.date = req.body.date ?? production.date;
+    production.totalPreparedLiters =
+      req.body.totalPreparedLiters ?? production.totalPreparedLiters;
+    production.estimatedGlasses =
+      req.body.estimatedGlasses ?? production.estimatedGlasses;
+    production.notes = req.body.notes ?? production.notes;
+    production.itemsUsed = finalItems;
+
+    await production.save();
+    await applyStockConsumption(finalItems, oldItems);
+
+    res.json({ success: true, production });
+  } catch (error) {
+    res
+      .status(error.statusCode || 500)
+      .json({ success: false, message: error.message });
   }
 };
 

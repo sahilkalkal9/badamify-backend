@@ -22,7 +22,7 @@ export const getDashboard = async (req, res) => {
     }
 
     const setupFilter = { ...baseFilter };
-    const stockFilter = { ...baseFilter };
+    const stockFilter = {};
     const productionFilter = { ...baseFilter };
     const saleFilter = { ...baseFilter };
 
@@ -39,7 +39,7 @@ export const getDashboard = async (req, res) => {
         StockPurchase.find(stockFilter),
         DailyProduction.find(productionFilter),
         Sale.find(saleFilter),
-        RecipeItem.find(baseFilter),
+        RecipeItem.find({}),
       ]);
 
     const totalSetupInvestment = sum(setupStuff, "totalPrice");
